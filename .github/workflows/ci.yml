@@ -4,6 +4,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -50,6 +51,7 @@ jobs:
           sudo bash test-results/scripts/db-backup.sh
           sudo sh -c 'zcat /var/backups/vps-tuner/smoke-pg-*.sql.gz | grep "PostgreSQL database dump"'
       - name: Xray and per-user access
+        if: ${{ !cancelled() }}
         run: |
           sudo bash test-results/scripts/xray.sh
           sudo bash test-results/scripts/xray-client.sh
@@ -57,6 +59,7 @@ jobs:
           sudo bash test-results/scripts/xray-revoke.sh
           sudo test ! -e /opt/vps-tuner/xray/clients/testclient.txt
       - name: WDTT local panel
+        if: ${{ !cancelled() }}
         run: |
           sudo modprobe tun
           sudo bash test-results/scripts/wdtt.sh
@@ -64,6 +67,7 @@ jobs:
           sudo ss -lntp | grep '127.0.0.1:2860'
           sudo systemctl stop wdtt
       - name: AmneziaWG build, client and revoke
+        if: ${{ !cancelled() }}
         run: |
           sudo bash test-results/scripts/awg.sh
           sudo bash test-results/scripts/awg-client.sh
@@ -78,3 +82,4 @@ jobs:
           sudo journalctl -u wdtt -u vpst-xray -n 80 --no-pager || true
           sudo docker ps -a
           sudo docker logs vpst-awg --tail 80 || true
+          sudo docker logs vpst-smoke-redis-database-1 --tail 30 || true

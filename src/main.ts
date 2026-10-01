@@ -56,7 +56,7 @@ function initHandlers(){
   if(!/^\/(opt\/vps-tuner\/(awg\/clients\/[a-z][a-z0-9-]{1,39}\.conf|xray\/clients\/[a-z][a-z0-9-]{1,39}\.txt|[a-z][a-z0-9-]{1,39}\/password\.txt)|var\/backups\/vps-tuner\/[a-zA-Z0-9_.-]+\.(sql\.gz|tar\.gz))$/.test(path))throw new Error('Разрешено скачивать только конфиги клиентов, пароли и резервные копии VPS Tuner');
   const result=await dialog.showSaveDialog(win,{title:'Скачать файл с VPS',defaultPath:basename(path)});if(result.canceled||!result.filePath)return false;
   const temp=result.filePath+'.vpst-'+randomUUID()+'.partial';
-  try{await ssh.download(path,temp);await chmod(temp,0o600);await rename(temp,result.filePath);return true;}catch(e){await rm(temp,{force:true});throw e;}
+  try{await writeFile(temp,'',{mode:0o600,flag:'wx'});await ssh.download(path,temp);await chmod(temp,0o600);await rename(temp,result.filePath);return true;}catch(e){await rm(temp,{force:true});throw e;}
  }));
  handle('exportReport',async(input:unknown)=>{if(!snapshot)throw new Error('Сначала выполните аудит');const r=await dialog.showSaveDialog(win,{title:'Экспорт аудита',defaultPath:`vps-audit-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'JSON',extensions:['json']}]});if(r.canceled||!r.filePath)return false;await writeFile(r.filePath,JSON.stringify(snapshot,null,2),{mode:0o600});return true;});
  handle('exportOutput',async(input:unknown)=>{const text=z.string().max(4*1024*1024).parse(input);const r=await dialog.showSaveDialog(win,{title:'Сохранить вывод / конфигурацию',defaultPath:'vps-output.txt'});if(r.canceled||!r.filePath)return false;await writeFile(r.filePath,text,{mode:0o600});return true;});

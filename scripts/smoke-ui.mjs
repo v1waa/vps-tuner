@@ -52,11 +52,11 @@ try{
  assert.equal(await page.getByRole('button',{name:'Выполнить на VPS'}).isDisabled(),true);
  await page.getByPlaceholder('127.0.0.1',{exact:true}).fill('127.0.0.1');
  await page.getByRole('button',{name:'Выполнить на VPS'}).click();
- await page.getByRole('log').getByText('SMOKE_OPERATION_OK').waitFor();
+ await page.getByRole('log').filter({hasText:'SMOKE_OPERATION_OK'}).waitFor();
  await page.getByText('Готово',{exact:true}).waitFor();assert.equal(execCount,1);
  await page.screenshot({path:'test-results/operation.png'});
  await page.getByRole('button',{name:'Свернуть вывод'}).click();
  await page.getByRole('button',{name:'Отключиться',exact:true}).click();
  assert.equal(errors.length,0,errors.join('\n'));
  console.log('Desktop UI smoke passed: IPC isolation, 12 pages, SSH login, scan, critical plan, command, disconnect.');
-}finally{if(app)await app.close();server.close();await rm(config,{recursive:true,force:true}).catch(()=>{});}
+}catch(error){if(app)await (await app.firstWindow()).screenshot({path:'test-results/failure.png'}).catch(()=>{});throw error;}finally{if(app)await app.close();server.close();await rm(config,{recursive:true,force:true}).catch(()=>{});}

@@ -166,7 +166,7 @@ else:
 PY
 `;}
 export function wdttInstall(p:Record<string,string>,profile:Profile){
- const pw=p.password||'';if(pw.length<12||pw.length>72)throw new Error('Пароль панели: от 12 до 72 символов');
+ const pw=p.password||'';if(pw.length<12||Buffer.byteLength(pw,'utf8')>72)throw new Error('Пароль панели: от 12 символов, не более 72 байт UTF-8');
  const panel={username:'admin',password_hash:hashSync(pw,12),port:2860,web_base_path:'/wdtt/',webListen:'127.0.0.1',subEnable:false,subListen:'127.0.0.1',subPort:2096};
  return debianGuard+subnetGuard(['10.66.66.0/24','10.70.0.0/16'])+[56000,56001,56003,46000].map(p=>freePort(p,'udp')).join('')+freePort(2860)+freePort(2861)+newPath('/etc/wdtt')+newPath('/usr/local/bin/wdtt-app')+newPath('/etc/systemd/system/wdtt.service')+`test -c /dev/net/tun || { echo 'На VPS недоступен TUN'; exit 1; }
 if ip -4 route show | grep -Eq '10\\.(66\\.66|70)\\.'; then echo 'Подсеть WDTT пересекается с существующими маршрутами'; exit 1; fi
@@ -187,7 +187,7 @@ install -d -m 700 /etc/wdtt
 `+writeFile('/etc/systemd/system/wdtt.service',`[Unit]\nDescription=WDTT server and local panel (VPS Tuner)\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nUMask=0077\nExecStartPre=/bin/sh -c 'iptables -C INPUT -p udp --dport 56000 -m comment --comment VPST_WDTT -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport 56000 -m comment --comment VPST_WDTT -j ACCEPT'\nExecStart=/usr/local/bin/wdtt-app -config-dir /etc/wdtt\nRestart=on-failure\nRestartSec=5\nLimitNOFILE=65535\n[Install]\nWantedBy=multi-user.target\n`,'644')+`systemctl daemon-reload
 systemctl enable --now wdtt
 for i in $(seq 1 30); do
-  if curl -fsS --max-time 2 http://127.0.0.1:2861/health >/dev/null; then
+  if curl -fsS --max-time 2 http://127.0.0.1:2861/health >/dev/null 2>&1 && curl -fsS --max-time 2 http://127.0.0.1:2860/wdtt/ >/dev/null 2>&1; then
     echo 'WDTT готов. Откройте туннель на 2860 и путь /wdtt/. Логин admin; пароль задан в форме. Создайте пользователей в панели.'
     exit 0
   fi

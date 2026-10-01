@@ -1,0 +1,80 @@
+name: Verify desktop and server recipes
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: xvfb-run -a node scripts/smoke-ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshots
+          path: test-results/*.png
+  server-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare disposable-server recipes
+        run: VPST_DISPOSABLE_HOST=1 node --import tsx scripts/render-smoke.ts
+      - name: Databases, website and SQL backup
+        run: |
+          sudo bash test-results/scripts/postgres.sh
+          sudo bash test-results/scripts/mariadb.sh
+          sudo bash test-results/scripts/redis.sh
+          sudo bash test-results/scripts/static.sh
+          curl --fail --retry 5 http://127.0.0.1:18080 | grep VPST_SMOKE
+          sudo bash test-results/scripts/db-backup.sh
+          sudo sh -c 'zcat /var/backups/vps-tuner/smoke-pg-*.sql.gz | grep "PostgreSQL database dump"'
+      - name: Xray and per-user access
+        run: |
+          sudo bash test-results/scripts/xray.sh
+          sudo bash test-results/scripts/xray-client.sh
+          sudo test -s /opt/vps-tuner/xray/clients/testclient.txt
+          sudo bash test-results/scripts/xray-revoke.sh
+          sudo test ! -e /opt/vps-tuner/xray/clients/testclient.txt
+      - name: WDTT local panel
+        run: |
+          sudo modprobe tun
+          sudo bash test-results/scripts/wdtt.sh
+          curl --fail http://127.0.0.1:2861/health
+          sudo ss -lntp | grep '127.0.0.1:2860'
+          sudo systemctl stop wdtt
+      - name: AmneziaWG build, client and revoke
+        run: |
+          sudo bash test-results/scripts/awg.sh
+          sudo bash test-results/scripts/awg-client.sh
+          sudo test -s /opt/vps-tuner/awg/clients/testphone.conf
+          sudo docker exec vpst-awg awg show awg0
+          sudo bash test-results/scripts/awg-revoke.sh
+          sudo test ! -e /opt/vps-tuner/awg/clients/testphone.conf
+      - name: Service diagnostics
+        if: failure()
+        run: |
+          sudo systemctl status wdtt vpst-xray --no-pager || true
+          sudo journalctl -u wdtt -u vpst-xray -n 80 --no-pager || true
+          sudo docker ps -a
+          sudo docker logs vpst-awg --tail 80 || true

@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "platforms": ["windows-x64", "linux-x64"],
+  "channel": "stable"
+}

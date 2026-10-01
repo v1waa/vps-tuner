@@ -1,5 +1,5 @@
 import {hashSync} from 'bcryptjs';
-import {quote,port,slug,domain,writeFile,newPath,freePort,debianGuard,dockerGuard} from './validation';
+import {quote,port,slug,domain,writeFile,newPath,freePort,debianGuard,dockerGuard,subnetGuard} from './validation';
 import type {Profile} from '../shared/types';
 export const awgGoCommit='b5928efb6ca19f0153958460c3d141f04abc5c2e';
 export const awgToolsCommit='ee0f0a9aa34ff0a0da4b3433b9512781cfe02843';
@@ -53,7 +53,7 @@ while :; do sleep 3600 & wait $!; done
 export function awgInstall(p:Record<string,string>){
  const n=port(p.port||'51820'),path='/opt/vps-tuner/awg';
  const compose={name:'vpst-awg',services:{vpn:{build:'.',container_name:'vpst-awg',restart:'unless-stopped',cap_add:['NET_ADMIN'],devices:['/dev/net/tun:/dev/net/tun'],sysctls:{'net.ipv4.ip_forward':'1'},ports:[`${n}:${n}/udp`],environment:{AWG_PORT:String(n)},volumes:['./config:/etc/amnezia/amneziawg'],healthcheck:{test:['CMD','awg','show','awg0'],interval:'15s',timeout:'5s',retries:5},logging:{driver:'json-file',options:{'max-size':'10m','max-file':'3'}}}}};
- return dockerGuard+`test -c /dev/net/tun || { echo 'На VPS недоступен TUN'; exit 1; }\n`+freePort(n,'udp')+newPath(path)+`install -d -m 700 ${path}/config ${path}/clients\n`+writeFile(path+'/Dockerfile',awgDockerfile)+writeFile(path+'/entrypoint.sh',awgEntry)+writeFile(path+'/compose.yaml',JSON.stringify(compose,null,2))+`cd ${path}\ndocker compose -f compose.yaml config --quiet\ndocker compose -f compose.yaml up -d --build --wait --wait-timeout 90\necho 'AmneziaWG установлен. Добавьте отдельного клиента для каждого устройства.'\n`;
+ return dockerGuard+subnetGuard(['10.77.0.0/24'])+`test -c /dev/net/tun || { echo 'На VPS недоступен TUN'; exit 1; }\n`+freePort(n,'udp')+newPath(path)+`install -d -m 700 ${path}/config ${path}/clients\n`+writeFile(path+'/Dockerfile',awgDockerfile)+writeFile(path+'/entrypoint.sh',awgEntry)+writeFile(path+'/compose.yaml',JSON.stringify(compose,null,2))+`cd ${path}\ndocker compose -f compose.yaml config --quiet\ndocker compose -f compose.yaml up -d --build --wait --wait-timeout 90\necho 'AmneziaWG установлен. Добавьте отдельного клиента для каждого устройства.'\n`;
 }
 export function awgClient(p:Record<string,string>,profile:Profile){
  const name=slug(p.name||''),addr=Number(p.address||'2');if(!Number.isInteger(addr)||addr<2||addr>254)throw new Error('Номер адреса клиента: 2–254');
@@ -91,7 +91,7 @@ echo 'Клиент создан: /opt/vps-tuner/awg/clients/${name}.conf'
 export function awgRevoke(p:Record<string,string>){const name=slug(p.name||'');return dockerGuard+`cd /opt/vps-tuner/awg\ntest -f clients/${name}.conf\n`+`python3 - ${quote(name)} <<'PY'
 import pathlib,re,subprocess,sys
 name=sys.argv[1];path=pathlib.Path('config/awg0.conf');text=path.read_text()
-pattern=r'\n# client '+re.escape(name)+r'\n\[Peer\]\nPublicKey = ([A-Za-z0-9+/=]+)\nAllowedIPs = [^\n]+\n'
+pattern=r'\\n# client '+re.escape(name)+r'\\n\\[Peer\\]\\nPublicKey = ([A-Za-z0-9+/=]+)\\nAllowedIPs = [^\\n]+\\n'
 m=re.search(pattern,text)
 if not m: raise SystemExit('Клиент отсутствует в серверном конфиге')
 subprocess.run(['docker','exec','vpst-awg','awg','set','awg0','peer',m[1],'remove'],check=True)
@@ -104,7 +104,7 @@ export function xrayInstall(p:Record<string,string>,profile:Profile){
  const n=port(p.port||'443'),sni=domain(p.sni||'www.microsoft.com'),path='/opt/vps-tuner/xray';
  const server={log:{loglevel:'warning'},inbounds:[{tag:'vless',listen:'0.0.0.0',port:n,protocol:'vless',settings:{clients:[],decryption:'none'},streamSettings:{network:'tcp',security:'reality',realitySettings:{show:false,target:`${sni}:443`,xver:0,serverNames:[sni],privateKey:'',shortIds:[]}}}],outbounds:[{protocol:'freedom',tag:'direct'},{protocol:'blackhole',tag:'block'}],routing:{rules:[{type:'field',ip:['geoip:private'],outboundTag:'block'}]}};
  const unit=`[Unit]\nDescription=VPS Tuner Xray REALITY\nAfter=network-online.target\nWants=network-online.target\n[Service]\nUser=vpst-xray\nGroup=vpst-xray\nExecStart=/usr/local/lib/vps-tuner/xray/xray run -config /etc/vps-tuner/xray/config.json\nEnvironment=XRAY_LOCATION_ASSET=/usr/local/lib/vps-tuner/xray\nRestart=on-failure\nRestartSec=5\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=true\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n`;
- return debianGuard+freePort(n)+newPath(path)+newPath('/etc/vps-tuner/xray')+newPath('/etc/systemd/system/vpst-xray.service')+`apt-get update\nDEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates unzip python3\ncase "$(uname -m)" in
+ return debianGuard+freePort(n)+newPath(path)+newPath('/etc/vps-tuner/xray')+newPath('/usr/local/lib/vps-tuner/xray')+newPath('/etc/systemd/system/vpst-xray.service')+`apt-get update\nDEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates unzip python3\ncase "$(uname -m)" in
 x86_64) asset=Xray-linux-64.zip; sha=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;;
 aarch64) asset=Xray-linux-arm64-v8a.zip; sha=4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;;
 *) echo 'Поддерживаются x86_64 и arm64'; exit 1 ;;
@@ -133,7 +133,7 @@ m=json.loads(pathlib.Path('${path}/meta.json').read_text());m['publicKey']=publi
 pathlib.Path('${path}/meta.json').write_text(json.dumps(m))
 q=urllib.parse.urlencode({'encryption':'none','security':'reality','sni':m['sni'],'fp':'chrome','pbk':public,'sid':m['shortId'],'type':'tcp','flow':'xtls-rprx-vision'})
 host='['+m['host']+']' if ':' in m['host'] else m['host']
-pathlib.Path('${path}/clients/first.txt').write_text('vless://'+uid+'@'+host+':'+str(m['port'])+'?'+q+'#first\n')
+pathlib.Path('${path}/clients/first.txt').write_text('vless://'+uid+'@'+host+':'+str(m['port'])+'?'+q+'#first\\n')
 PY
 chown root:vpst-xray /etc/vps-tuner/xray/config.json
 chmod 640 /etc/vps-tuner/xray/config.json
@@ -159,7 +159,7 @@ except Exception:
 if action=='add':
  q=urllib.parse.urlencode({'encryption':'none','security':'reality','sni':m['sni'],'fp':'chrome','pbk':m['publicKey'],'sid':m['shortId'],'type':'tcp','flow':'xtls-rprx-vision'})
  host='['+m['host']+']' if ':' in m['host'] else m['host']
- dest.write_text('vless://'+uid+'@'+host+':'+str(m['port'])+'?'+q+'#'+name+'\n');dest.chmod(0o600)
+ dest.write_text('vless://'+uid+'@'+host+':'+str(m['port'])+'?'+q+'#'+name+'\\n');dest.chmod(0o600)
  print('Клиент создан: '+str(dest))
 else:
  dest.unlink(missing_ok=True);print('Доступ клиента отозван')
@@ -168,7 +168,7 @@ PY
 export function wdttInstall(p:Record<string,string>,profile:Profile){
  const pw=p.password||'';if(pw.length<12||pw.length>72)throw new Error('Пароль панели: от 12 до 72 символов');
  const panel={username:'admin',password_hash:hashSync(pw,12),port:2860,web_base_path:'/wdtt/',webListen:'127.0.0.1',subEnable:false,subListen:'127.0.0.1',subPort:2096};
- return debianGuard+[56000,56001,56003,46000].map(p=>freePort(p,'udp')).join('')+freePort(2860)+freePort(2861)+newPath('/etc/wdtt')+newPath('/usr/local/bin/wdtt-app')+newPath('/etc/systemd/system/wdtt.service')+`test -c /dev/net/tun || { echo 'На VPS недоступен TUN'; exit 1; }
+ return debianGuard+subnetGuard(['10.66.66.0/24','10.70.0.0/16'])+[56000,56001,56003,46000].map(p=>freePort(p,'udp')).join('')+freePort(2860)+freePort(2861)+newPath('/etc/wdtt')+newPath('/usr/local/bin/wdtt-app')+newPath('/etc/systemd/system/wdtt.service')+`test -c /dev/net/tun || { echo 'На VPS недоступен TUN'; exit 1; }
 if ip -4 route show | grep -Eq '10\\.(66\\.66|70)\\.'; then echo 'Подсеть WDTT пересекается с существующими маршрутами'; exit 1; fi
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates iproute2 iptables openssl

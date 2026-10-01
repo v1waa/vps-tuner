@@ -16,3 +16,18 @@ export const dockerGuard="command -v docker >/dev/null || { echo 'Сначала
 export function freePort(n:number,proto='tcp'):string{return `command -v ss >/dev/null\nif [ -n "$(ss -H -ln${proto==='udp'?'u':'t'} 'sport = :${port(n)}')" ]; then echo 'Порт ${n}/${proto} уже занят'; exit 1; fi\n`;}
 export function newPath(path:string):string{return `if [ -e ${quote(path)} ] || [ -L ${quote(path)} ]; then echo 'Путь уже существует: установка остановлена'; exit 1; fi\n`;}
 export function writeFile(path:string,content:string,mode='600'):string{return `printf %s ${quote(Buffer.from(content).toString('base64'))} | base64 -d > ${quote(path)}\nchmod ${mode} ${quote(path)}\n`;}
+
+export function subnetGuard(networks:string[]):string{return `command -v python3 >/dev/null || { echo 'Сначала установите базовые инструменты (Python 3)'; exit 1; }
+python3 - <<'VPST_SUBNETS'
+import ipaddress,json,subprocess
+planned=[ipaddress.ip_network(n) for n in ${JSON.stringify(networks)}]
+routes=json.loads(subprocess.check_output(['ip','-j','-4','route','show'],text=True))
+for route in routes:
+ dst=route.get('dst','default')
+ if dst=='default': continue
+ try: existing=ipaddress.ip_network(dst,strict=False)
+ except ValueError: continue
+ if any(existing.overlaps(n) for n in planned):
+  raise SystemExit('Подсеть VPN пересекается с маршрутом '+dst)
+VPST_SUBNETS
+`;}
